@@ -18,8 +18,8 @@ export default async function handler(req, res) {
       throw new Error("Missing ACTION_NETWORK_API_KEY");
     }
 
-    const TAG_ID = "2335682"; // Replace if needed
-    const url = `https://actionnetwork.org/api/v2/tags/${TAG_ID}/people`;
+    const PETITION_ID = "640750"; // Your petition ID
+    const url = `https://actionnetwork.org/api/v2/petitions/${PETITION_ID}/signatures`;
 
     const response = await fetch(url, {
       headers: {
@@ -29,15 +29,17 @@ export default async function handler(req, res) {
     });
 
     if (!response.ok) {
-      throw new Error(`Action Network API error: ${response.status}`);
+      const errorText = await response.text();
+      throw new Error(`Action Network API error: ${response.status} - ${errorText}`);
     }
 
     const data = await response.json();
-    const people = data._embedded?.["osdi:people"] || [];
+    const signatures = data._embedded?.["osdi:signatures"] || [];
 
-    const names = people.map((person) => {
-      const first = person.given_name || "";
-      const last = person.family_name || "";
+    const names = signatures.map((signature) => {
+      const person = signature._embedded?.["osdi:person"];
+      const first = person?.given_name || "";
+      const last = person?.family_name || "";
       const fullName = `${first} ${last}`.trim();
       return fullName || "Anonymous";
     });
