@@ -19,7 +19,7 @@ export default async function handler(req, res) {
     }
 
     const PETITION_ID = "640750"; // Your petition ID
-    const url = `https://actionnetwork.org/api/v2/petitions/${PETITION_ID}/signatures`;
+    const url = `https://actionnetwork.org/api/v2/petitions/640750/signatures`;
 
     const response = await fetch(url, {
       headers: {
