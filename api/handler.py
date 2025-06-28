@@ -16,12 +16,44 @@ AN_HEADERS = {
     "Accept": "application/json"
 }
 
+def get_person_tags(taggings_url):
+    """Fetches all tags for a specific person, handling pagination."""
+    tags = []
+    next_page = taggings_url
+    while next_page:
+        try:
+            response = requests.get(next_page, headers=AN_HEADERS)
+            response.raise_for_status()
+            data = response.json()
+            # Extract tag names from the embedded tag objects
+            if "_embedded" in data and "osdi:tags" in data["_embedded"]:
+                for tag in data["_embedded"]["osdi:tags"]:
+                    if "name" in tag:
+                        tags.append(tag["name"])
+            # Check for a next page
+            next_page = data.get("_links", {}).get("next", {}).get("href")
+        except requests.exceptions.RequestException:
+            # On error, stop trying to fetch tags for this person
+            next_page = None
+    return tags
+
+
 def get_person_details(person_url):
-    """Fetches details for a specific person from Action Network."""
+    """Fetches details and tags for a specific person from Action Network."""
     try:
         response = requests.get(person_url, headers=AN_HEADERS)
         response.raise_for_status()
-        return response.json()
+        person_data = response.json()
+
+        # After getting person data, fetch their tags
+        taggings_link = person_data.get("_links", {}).get("osdi:taggings", {}).get("href")
+        if taggings_link:
+            person_data['tags'] = get_person_tags(taggings_link)
+        else:
+            person_data['tags'] = []
+            
+        return person_data
+        
     except requests.exceptions.RequestException:
         return None # Return None on failure
 
@@ -44,11 +76,12 @@ def fetch_all_submissions():
                         person_data = get_person_details(person_url)
                         if person_data:
                             all_person_details.append(person_data)
-                        time.sleep(0.5) # Be polite to the API
+                        # Be polite to the API, but slightly faster
+                        time.sleep(0.25)
             
             next_page_url = data.get("_links", {}).get("next", {}).get("href")
             if next_page_url:
-                time.sleep(0.5) # Be polite to the API
+                time.sleep(0.25)
         except (requests.exceptions.RequestException, json.JSONDecodeError):
             next_page_url = None # Stop on any error
 
@@ -63,8 +96,6 @@ class handler(BaseHTTPRequestHandler):
         submissions_data = fetch_all_submissions()
 
         # Set the response headers
-        # The 'Access-Control-Allow-Origin' header is CRITICAL. It allows your Squarespace
-        # site to make a request to this Vercel function.
         self.send_response(200)
         self.send_header('Content-type', 'application/json')
         self.send_header('Access-Control-Allow-Origin', '*') # Allows any site to access
@@ -73,3 +104,4 @@ class handler(BaseHTTPRequestHandler):
         # Send the data back as a JSON response
         self.wfile.write(json.dumps(submissions_data).encode('utf-8'))
         return
+
