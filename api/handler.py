@@ -34,24 +34,54 @@ def get_person_tags(taggings_url):
             next_page = None
     return tags
 
-def get_person_details(person_url):
-    """Fetches details and tags for a specific person from Action Network."""
-    try:
-        response = requests.get(person_url, headers=AN_HEADERS)
-        response.raise_for_status()
-        person_data = response.json()
-        taggings_link = person_data.get("_links", {}).get("osdi:taggings", {}).get("href")
-        if taggings_link:
-            person_data['tags'] = get_person_tags(taggings_link)
-        else:
-            person_data['tags'] = []
-        return person_data
-    except requests.exceptions.RequestException:
+def get_full_submission_details(submission_summary):
+    """
+    Fetches the full details for an individual submission and its associated person,
+    then merges them.
+    """
+    # Get the URL for the full submission record
+    submission_url = submission_summary.get("_links", {}).get("self", {}).get("href")
+    if not submission_url:
         return None
+
+    try:
+        # Fetch the full submission record to get its custom fields
+        response = requests.get(submission_url, headers=AN_HEADERS)
+        response.raise_for_status()
+        full_submission_data = response.json()
+        submission_custom_fields = full_submission_data.get('custom_fields', {})
+
+        # Now get the associated person's details
+        person_url = full_submission_data.get("_links", {}).get("osdi:person", {}).get("href")
+        if not person_url:
+            return None # Can't proceed without a person
+
+        person_response = requests.get(person_url, headers=AN_HEADERS)
+        person_response.raise_for_status()
+        person_details = person_response.json()
+
+        # Fetch the person's tags
+        taggings_link = person_details.get("_links", {}).get("osdi:taggings", {}).get("href")
+        if taggings_link:
+            person_details['tags'] = get_person_tags(taggings_link)
+        else:
+            person_details['tags'] = []
+
+        # Merge the submission's custom fields into the person object
+        # This ensures the most specific data from the form is present.
+        if 'custom_fields' not in person_details:
+            person_details['custom_fields'] = {}
+        person_details['custom_fields'].update(submission_custom_fields)
+        
+        return person_details
+
+    except (requests.exceptions.RequestException, json.JSONDecodeError):
+        return None
+
 
 def fetch_all_submissions():
     """
-    Fetches all submissions, then merges person data and custom fields for each.
+    Fetches all submission summaries and then gets the full merged details for each.
     """
     all_final_details = []
     next_page_url = f"{AN_BASE_URL}forms/{AN_FORM_ID}/submissions/"
@@ -64,32 +94,17 @@ def fetch_all_submissions():
 
             if "_embedded" in data and "osdi:submissions" in data["_embedded"]:
                 submissions_on_page = data["_embedded"]["osdi:submissions"]
-                for submission in submissions_on_page:
-                    # Start by getting the person's core data (name, email, tags)
-                    person_url = submission.get("_links", {}).get("osdi:person", {}).get("href")
-                    if not person_url:
-                        continue
-                    
-                    person_details = get_person_details(person_url)
-                    if not person_details:
-                        continue
-                        
-                    # Now, merge the custom fields from the submission record into the person details
-                    # This ensures we have both sets of data.
-                    if 'custom_fields' in submission:
-                        # If the person object doesn't already have custom_fields, create it
-                        if 'custom_fields' not in person_details:
-                            person_details['custom_fields'] = {}
-                        # Merge the submission's custom fields. This will overwrite any person-level
-                        # custom fields if they have the same name, which is usually the desired behavior.
-                        person_details['custom_fields'].update(submission['custom_fields'])
-
-                    all_final_details.append(person_details)
-                    time.sleep(0.25)
+                for submission_summary in submissions_on_page:
+                    # Get the full merged details for this submission
+                    full_details = get_full_submission_details(submission_summary)
+                    if full_details:
+                        all_final_details.append(full_details)
+                    # Be polite to the API
+                    time.sleep(0.3)
             
             next_page_url = data.get("_links", {}).get("next", {}).get("href")
             if next_page_url:
-                time.sleep(0.25)
+                time.sleep(0.3)
         except (requests.exceptions.RequestException, json.JSONDecodeError):
             next_page_url = None
 
