@@ -16,28 +16,10 @@ AN_HEADERS = {
     "Accept": "application/json"
 }
 
-def get_person_tags(taggings_url):
-    """Fetches all tags for a specific person, handling pagination."""
-    tags = []
-    next_page = taggings_url
-    while next_page:
-        try:
-            response = requests.get(next_page, headers=AN_HEADERS)
-            response.raise_for_status()
-            data = response.json()
-            if "_embedded" in data and "osdi:tags" in data["_embedded"]:
-                for tag in data["_embedded"]["osdi:tags"]:
-                    if "name" in tag:
-                        tags.append(tag["name"])
-            next_page = data.get("_links", {}).get("next", {}).get("href")
-        except requests.exceptions.RequestException:
-            next_page = None
-    return tags
-
 def get_full_submission_details(submission_summary):
     """
     Fetches the full details for an individual submission and its associated person,
-    then merges them.
+    then merges them. This now includes expanding tags directly on the person object.
     """
     # Get the URL for the full submission record
     submission_url = submission_summary.get("_links", {}).get("self", {}).get("href")
@@ -51,24 +33,25 @@ def get_full_submission_details(submission_summary):
         full_submission_data = response.json()
         submission_custom_fields = full_submission_data.get('custom_fields', {})
 
-        # Now get the associated person's details
+        # Get the person URL and append '?expand=tags' to get tags included directly
         person_url = full_submission_data.get("_links", {}).get("osdi:person", {}).get("href")
         if not person_url:
             return None # Can't proceed without a person
 
-        person_response = requests.get(person_url, headers=AN_HEADERS)
+        # Fetch the person record with tags expanded
+        person_response = requests.get(f"{person_url}?expand=tags", headers=AN_HEADERS)
         person_response.raise_for_status()
         person_details = person_response.json()
 
-        # Fetch the person's tags
-        taggings_link = person_details.get("_links", {}).get("osdi:taggings", {}).get("href")
-        if taggings_link:
-            person_details['tags'] = get_person_tags(taggings_link)
-        else:
-            person_details['tags'] = []
+        # Extract the tag names from the newly embedded tag objects
+        tags = []
+        if "_embedded" in person_details and "osdi:tags" in person_details["_embedded"]:
+            for tag in person_details["_embedded"]["osdi:tags"]:
+                if "name" in tag:
+                    tags.append(tag["name"])
+        person_details['tags'] = tags # Add the flat list of tag names to the object
 
         # Merge the submission's custom fields into the person object
-        # This ensures the most specific data from the form is present.
         if 'custom_fields' not in person_details:
             person_details['custom_fields'] = {}
         person_details['custom_fields'].update(submission_custom_fields)
@@ -122,3 +105,4 @@ class handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(json.dumps(submissions_data).encode('utf-8'))
         return
+
