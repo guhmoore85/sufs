@@ -22,6 +22,7 @@ def get_basic_submission_data(submission_summary):
         person_data = submission_summary.get("person", {})
         
         if person_data:
+            # We have person data in the submission already
             name_parts = []
             if person_data.get("given_name"):
                 name_parts.append(person_data["given_name"])
@@ -33,7 +34,7 @@ def get_basic_submission_data(submission_summary):
             return {
                 "name": full_name,
                 "email": person_data.get("email_addresses", [{}])[0].get("address", ""),
-                "location": "",  
+                "location": "",  # We'll extract this if available
                 "title": person_data.get("custom_fields", {}).get("Title", ""),
                 "organization": person_data.get("custom_fields", {}).get("Professional_Affiliation", "")
             }
@@ -81,15 +82,14 @@ def get_basic_submission_data(submission_summary):
 
 def fetch_petition_signatures():
     """
-    Fetches petition signatures with error handling and rate limiting.
+    Fetches petition signatures with better error handling and rate limiting.
     """
     print("Starting to fetch petition signatures...")
     all_signatures = []
     next_page_url = f"{AN_BASE_URL}forms/{AN_FORM_ID}/submissions/"
     page_count = 0
     
-    # while next_page_url:  # Get all pages
-    while next_page_url and page_count < 20:  # Get the latest 20 pages
+    while next_page_url and page_count < 10:  # Limit to 10 pages for testing
         try:
             print(f"Fetching page {page_count + 1}...")
             response = requests.get(next_page_url, headers=AN_HEADERS, timeout=30)
@@ -105,9 +105,9 @@ def fetch_petition_signatures():
                     if signature_data:
                         all_signatures.append(signature_data)
                     
-                    # Rate limiting 
-                    if i % 5 == 0:  # Pause every 5 requests 
-                        time.sleep(0.3)
+                    # Rate limiting - be gentler on the API
+                    if i % 5 == 0:  # Pause every 5 requests
+                        time.sleep(0.5)
             
             # Get next page
             links = data.get("_links", {})
@@ -115,11 +115,11 @@ def fetch_petition_signatures():
             page_count += 1
             
             if next_page_url:
-                time.sleep(0.5)  # Pause between pages
+                time.sleep(1)  # Pause between pages
                 
         except requests.exceptions.Timeout:
             print("Request timed out. Retrying...")
-            time.sleep(1)
+            time.sleep(2)
             continue
         except requests.exceptions.RequestException as e:
             print(f"Request error: {e}")
@@ -166,62 +166,49 @@ def export_for_squarespace(signatures, format_type="simple"):
         # Full JSON for custom processing
         return json.dumps(signatures, indent=2)
 
-from http.server import BaseHTTPRequestHandler, HTTPServer
-
-# Add caching 
-CACHE = {
-    "data": None,
-    "timestamp": 0
-}
-CACHE_DURATION_SECONDS = 600  # Cache for 10 minutes
-
-class handler(BaseHTTPRequestHandler):
+def main():
     """
-    HTTP request handler that returns JSON response.
+    Main function to run the petition signature extraction.
     """
-    def do_GET(self):
-        # Check if cache is valid
-        is_cache_valid = (time.time() - CACHE["timestamp"]) < CACHE_DURATION_SECONDS
-        
-        if CACHE["data"] and is_cache_valid:
-            print("Serving data from cache.")
-            signatures_data = CACHE["data"]
-        else:
-            print("Cache expired or empty. Fetching fresh data from API.")
-            signatures_data = fetch_petition_signatures()
-            
-            # Update cache
-            if signatures_data:
-                CACHE["data"] = signatures_data
-                CACHE["timestamp"] = time.time()
-                print(f"Cache updated at {CACHE['timestamp']}")
-        
-        # Log the JSON result
-        json_response = json.dumps(signatures_data, indent=2)
-        print(f"\n=== JSON RESPONSE ===")
-        print(f"Total signatures: {len(signatures_data)}")
-        print("First 2 signatures:")
-        print(json.dumps(signatures_data[:2], indent=2))
-        print("...\n")
-        
-        # Set response headers
-        self.send_response(200)
-        self.send_header('Content-type', 'application/json')
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.end_headers()
-        
-        # Send JSON response
-        self.wfile.write(json_response.encode('utf-8'))
-
+    print("=== Petition Signature Extractor ===")
+    print("This will fetch signatures and format them for Squarespace")
+    print()
+    
+    # Fetch the signatures
+    signatures = fetch_petition_signatures()
+    
+    if not signatures:
+        print("No signatures found or API error occurred.")
+        return
+    
+    print(f"\n=== RESULTS ===")
+    print(f"Total signatures collected: {len(signatures)}")
+    
+    # Export in different formats
+    print("\n--- SIMPLE NAMES LIST (for Squarespace) ---")
+    simple_list = export_for_squarespace(signatures, "simple")
+    print(simple_list[:500] + "..." if len(simple_list) > 500 else simple_list)
+    
+    print("\n--- DETAILED LIST ---")
+    detailed_list = export_for_squarespace(signatures, "detailed")
+    print(detailed_list[:500] + "..." if len(detailed_list) > 500 else detailed_list)
+    
+    # Save to files
+    with open("petition_signatures_simple.txt", "w", encoding="utf-8") as f:
+        f.write(simple_list)
+    
+    with open("petition_signatures_detailed.txt", "w", encoding="utf-8") as f:
+        f.write(detailed_list)
+    
+    with open("petition_signatures_full.json", "w", encoding="utf-8") as f:
+        f.write(export_for_squarespace(signatures, "json"))
+    
+    print(f"\n=== FILES SAVED ===")
+    print("✅ petition_signatures_simple.txt - Just names for Squarespace")
+    print("✅ petition_signatures_detailed.txt - Names with titles/orgs")
+    print("✅ petition_signatures_full.json - Complete data")
+    print()
+    print("You can copy the content from the simple.txt file into Squarespace!")
 
 if __name__ == "__main__":
-    from http.server import HTTPServer
-    
-    PORT = 8000
-    print(f"Local server running at http://localhost:{PORT}")
-    
-    try:
-        httpd = HTTPServer(("localhost", PORT), handler)
-        httpd.serve_forever()
-    except KeyboardInterrupt:
-        print("\nServer stopped.")
+    main()
