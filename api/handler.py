@@ -12,73 +12,94 @@ AN_HEADERS = {
     "Accept": "application/json"
 }
 
+# def get_basic_submission_data(submission_summary):
+#     """
+#     Gets basic submission data without making additional API calls per submission.
+#     This is much faster and avoids rate limits.
+#     """
+#     try:
+#         # Try to get person data from the submission summary first
+#         person_data = submission_summary.get("person", {})
+        
+#         if person_data:
+#             name_parts = []
+#             if person_data.get("given_name"):
+#                 name_parts.append(person_data["given_name"])
+#             if person_data.get("family_name"):
+#                 name_parts.append(person_data["family_name"])
+            
+#             full_name = " ".join(name_parts) if name_parts else "Anonymous"
+            
+#             return {
+#                 "name": full_name,
+#                 "email": person_data.get("email_addresses", [{}])[0].get("address", ""),
+#                 "location": "",  
+#                 "title": person_data.get("custom_fields", {}).get("Title", ""),
+#                 "organization": person_data.get("custom_fields", {}).get("Professional_Affiliation", "")
+#             }
+        
+#         # If no person data in submission, we need to fetch it
+#         person_url = submission_summary.get("_links", {}).get("osdi:person", {}).get("href")
+#         if person_url:
+#             response = requests.get(person_url, headers=AN_HEADERS)
+#             response.raise_for_status()
+#             person_details = response.json()
+            
+#             name_parts = []
+#             if person_details.get("given_name"):
+#                 name_parts.append(person_details["given_name"])
+#             if person_details.get("family_name"):
+#                 name_parts.append(person_details["family_name"])
+            
+#             full_name = " ".join(name_parts) if name_parts else "Anonymous"
+            
+#             # Get location info
+#             location_parts = []
+#             addresses = person_details.get("postal_addresses", [])
+#             if addresses and addresses[0]:
+#                 addr = addresses[0]
+#                 if addr.get("locality"):
+#                     location_parts.append(addr["locality"])
+#                 if addr.get("region"):
+#                     location_parts.append(addr["region"])
+            
+#             location = ", ".join(location_parts)
+            
+#             return {
+#                 "name": full_name,
+#                 "email": person_details.get("email_addresses", [{}])[0].get("address", ""),
+#                 "location": location,
+#                 "title": person_details.get("custom_fields", {}).get("Title", ""),
+#                 "organization": person_details.get("custom_fields", {}).get("Professional_Affiliation", "")
+#             }
+        
+#         return None
+        
+#     except Exception as e:
+#         print(f"Error processing submission: {e}")
+#         return None
+
 def get_basic_submission_data(submission_summary):
     """
-    Gets basic submission data without making additional API calls per submission.
-    This is much faster and avoids rate limits.
+    Gets the full person data from the API and returns it complete.
     """
     try:
-        # Try to get person data from the submission summary first
-        person_data = submission_summary.get("person", {})
-        
-        if person_data:
-            name_parts = []
-            if person_data.get("given_name"):
-                name_parts.append(person_data["given_name"])
-            if person_data.get("family_name"):
-                name_parts.append(person_data["family_name"])
-            
-            full_name = " ".join(name_parts) if name_parts else "Anonymous"
-            
-            return {
-                "name": full_name,
-                "email": person_data.get("email_addresses", [{}])[0].get("address", ""),
-                "location": "",  
-                "title": person_data.get("custom_fields", {}).get("Title", ""),
-                "organization": person_data.get("custom_fields", {}).get("Professional_Affiliation", "")
-            }
-        
-        # If no person data in submission, we need to fetch it
+       
         person_url = submission_summary.get("_links", {}).get("osdi:person", {}).get("href")
         if person_url:
             response = requests.get(person_url, headers=AN_HEADERS)
             response.raise_for_status()
             person_details = response.json()
             
-            name_parts = []
-            if person_details.get("given_name"):
-                name_parts.append(person_details["given_name"])
-            if person_details.get("family_name"):
-                name_parts.append(person_details["family_name"])
             
-            full_name = " ".join(name_parts) if name_parts else "Anonymous"
-            
-            # Get location info
-            location_parts = []
-            addresses = person_details.get("postal_addresses", [])
-            if addresses and addresses[0]:
-                addr = addresses[0]
-                if addr.get("locality"):
-                    location_parts.append(addr["locality"])
-                if addr.get("region"):
-                    location_parts.append(addr["region"])
-            
-            location = ", ".join(location_parts)
-            
-            return {
-                "name": full_name,
-                "email": person_details.get("email_addresses", [{}])[0].get("address", ""),
-                "location": location,
-                "title": person_details.get("custom_fields", {}).get("Title", ""),
-                "organization": person_details.get("custom_fields", {}).get("Professional_Affiliation", "")
-            }
+            return person_details
         
         return None
         
     except Exception as e:
         print(f"Error processing submission: {e}")
         return None
-
+    
 def fetch_petition_signatures():
     """
     Fetches petition signatures with error handling and rate limiting.
@@ -213,7 +234,77 @@ class handler(BaseHTTPRequestHandler):
         # Send JSON response
         self.wfile.write(json_response.encode('utf-8'))
 
+# def main():
+#     """
+#     Main function to run the petition signature extraction.
+#     """
+#     # print("=== Petition Signature Extractor ===")
+#     # print("This will fetch signatures and format them for Squarespace")
+#     # print()
+    
+#     # Fetch the signatures
+#     signatures = fetch_petition_signatures()
+    
+#     if not signatures:
+#         print("No signatures found or API error occurred.")
+#         return
+    
+#     print(f"\n=== RESULTS ===")
+#     print(f"Total signatures collected: {len(signatures)}")
+    
+#     # Exporting in different formats
+#     print("\n--- SIMPLE NAMES LIST ---")
+#     simple_list = export_for_squarespace(signatures, "simple")
+#     print(simple_list[:500] + "..." if len(simple_list) > 500 else simple_list)
+    
+#     print("\n--- DETAILED LIST ---")
+#     detailed_list = export_for_squarespace(signatures, "detailed")
+#     print(detailed_list[:500] + "..." if len(detailed_list) > 500 else detailed_list)
+    
+#     # Log the full JSON result
+#     json_result = export_for_squarespace(signatures, "json")
+#     print(f"\n--- FULL JSON RESULT (first 1000 chars) ---")
+#     print(json_result[:1000] + "..." if len(json_result) > 1000 else json_result)
+    
+#     # Save to files
+#     # with open("petition_signatures_simple.txt", "w", encoding="utf-8") as f:
+#     #     f.write(simple_list)
+    
+#     # with open("petition_signatures_detailed.txt", "w", encoding="utf-8") as f:
+#     #     f.write(detailed_list)
+    
+#     # with open("petition_signatures_full.json", "w", encoding="utf-8") as f:
+#     #     f.write(json_result)
+    
+#     # print(f"\n=== FILES SAVED ===")
+#     # print("petition_signatures_simple.txt - Just names for Squarespace")
+#     # print("petition_signatures_detailed.txt - Names with titles/orgs")
+#     # print("petition_signatures_full.json - Complete data")
+#     # print()
 
+# def start_server():
+#     """
+#     Start the HTTP server to serve JSON responses.
+#     """
+#     PORT = 8000
+#     print(f"\n=== STARTING HTTP SERVER ===")
+#     print(f"Server running at http://localhost:{PORT}")
+    
+#     try:
+#         httpd = HTTPServer(("localhost", PORT), handler)
+#         httpd.serve_forever()
+#     except KeyboardInterrupt:
+#         print("\nServer stopped.")
+
+# if __name__ == "__main__":
+#     import sys
+    
+#     if len(sys.argv) > 1 and sys.argv[1] == "server":
+#         start_server()
+#     else:
+#         main()
+
+# For local testing only
 if __name__ == "__main__":
     from http.server import HTTPServer
     
