@@ -23,10 +23,13 @@ CACHE_DURATION_SECONDS = 600  # Cache for 10 minutes
 def get_basic_submission_data(submission_summary):
     """
     Extracts basic person details from the expanded 'person' field in the submission.
+    Falls back to links if needed.
     """
     try:
-        person_data = submission_summary.get("person", {})
+        person_data = submission_summary.get("person")
+
         if not person_data:
+            print("No embedded person found. Skipping.")
             return None
 
         name_parts = []
@@ -64,6 +67,7 @@ def fetch_petition_signatures():
     print("Fetching petition signatures with expanded person data...")
     all_signatures = []
     next_page_url = f"{AN_BASE_URL}forms/{AN_FORM_ID}/submissions/"
+    page_number = 1
 
     while next_page_url:
         try:
@@ -72,21 +76,23 @@ def fetch_petition_signatures():
             data = response.json()
 
             submissions_on_page = data.get("_embedded", {}).get("osdi:submissions", [])
-            print(f"Fetched {len(submissions_on_page)} submissions")
+            print(f"[Page {page_number}] Submissions fetched: {len(submissions_on_page)}")
 
             for i, submission in enumerate(submissions_on_page):
+                print(f"\nSubmission {i+1}:\n{submission.get('person', {})}")
                 signature_data = get_basic_submission_data(submission)
                 if signature_data:
                     all_signatures.append(signature_data)
 
             next_page_url = data.get("_links", {}).get("next", {}).get("href")
+            page_number += 1
             time.sleep(1)  # Be polite to the API
 
         except Exception as e:
             print(f"Error during fetch: {e}")
             break
 
-    print(f"Finished. Total collected signatures: {len(all_signatures)}")
+    print(f"\nFinished. Total collected signatures: {len(all_signatures)}")
     return all_signatures
 
 def export_for_squarespace(signatures, format_type="simple"):
@@ -123,11 +129,17 @@ class handler(BaseHTTPRequestHandler):
                 CACHE["data"] = signatures
                 CACHE["timestamp"] = time.time()
 
+        response_payload = {
+            "last_updated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(CACHE["timestamp"])),
+            "total": len(CACHE["data"] or []),
+            "signatures": CACHE["data"] or []
+        }
+
         self.send_response(200)
         self.send_header('Content-type', 'application/json')
         self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
-        self.wfile.write(json.dumps(signatures, indent=2).encode('utf-8'))
+        self.wfile.write(json.dumps(response_payload, indent=2).encode('utf-8'))
 
 if __name__ == "__main__":
     PORT = 8000
