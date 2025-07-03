@@ -70,34 +70,57 @@ def get_basic_submission_data(submission_summary):
 
 def fetch_petition_signatures():
     """
-    Fetches all petition signatures using 'expand=person' to reduce API calls.
-    Falls back to person links if not embedded.
+    Fetch all petition signatures with adaptive throttling to avoid timeouts and rate limits.
     """
     print("Fetching petition signatures...")
     all_signatures = []
     next_page_url = f"{AN_BASE_URL}forms/{AN_FORM_ID}/submissions/"
     page_number = 1
 
+    base_delay = 1.0    # Start with 1 second delay
+    max_delay = 10.0    # Max delay between requests
+    delay = base_delay
+
     while next_page_url:
         try:
             response = requests.get(next_page_url, headers=AN_HEADERS, params={"expand": "person"}, timeout=30)
+            if response.status_code == 429:
+                # Too many requests, increase delay
+                print(f"Rate limited on page {page_number}. Increasing delay to {delay * 2} seconds.")
+                delay = min(delay * 2, max_delay)
+                time.sleep(delay)
+                continue  # retry same page after delay
+            
             response.raise_for_status()
             data = response.json()
 
             submissions_on_page = data.get("_embedded", {}).get("osdi:submissions", [])
             print(f"[Page {page_number}] Submissions fetched: {len(submissions_on_page)}")
 
-            for i, submission in enumerate(submissions_on_page):
+            for submission in submissions_on_page:
                 signature_data = get_basic_submission_data(submission)
                 if signature_data:
                     all_signatures.append(signature_data)
 
             next_page_url = data.get("_links", {}).get("next", {}).get("href")
             page_number += 1
-            time.sleep(1)  # Be polite to the API
+
+            # On success, slowly reduce delay toward base_delay
+            delay = max(base_delay, delay / 1.5)
+            print(f"Sleeping for {delay:.2f} seconds before next request.")
+            time.sleep(delay)
+
+        except requests.exceptions.Timeout:
+            print(f"Timeout on page {page_number}. Increasing delay to {delay * 2} seconds.")
+            delay = min(delay * 2, max_delay)
+            time.sleep(delay)
+
+        except requests.exceptions.RequestException as e:
+            print(f"Request error: {e}. Aborting fetch.")
+            break
 
         except Exception as e:
-            print(f"Error during fetch: {e}")
+            print(f"Unexpected error: {e}. Aborting fetch.")
             break
 
     print(f"\nFinished. Total collected signatures: {len(all_signatures)}")
