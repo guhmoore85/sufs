@@ -18,19 +18,27 @@ CACHE = {
     "data": None,
     "timestamp": 0
 }
-CACHE_DURATION_SECONDS = 600  # Cache for 10 minutes
+CACHE_MODE = os.environ.get("CACHE_MODE", "hourly")  # "short" or "hourly"
+CACHE_DURATION_SECONDS = 3600 if CACHE_MODE == "hourly" else 600
 
 def get_basic_submission_data(submission_summary):
     """
-    Extracts basic person details from the expanded 'person' field in the submission.
-    Falls back to links if needed.
+    Extracts person details either from the embedded data or by fetching from the API.
     """
     try:
         person_data = submission_summary.get("person")
 
+        # If not embedded, fetch via link
         if not person_data:
-            print("No embedded person found. Skipping.")
-            return None
+            person_url = submission_summary.get("_links", {}).get("osdi:person", {}).get("href")
+            if person_url:
+                print("Fetching person data from:", person_url)
+                response = requests.get(person_url, headers=AN_HEADERS)
+                response.raise_for_status()
+                person_data = response.json()
+            else:
+                print("No person data found. Skipping.")
+                return None
 
         name_parts = []
         if person_data.get("given_name"):
@@ -63,8 +71,9 @@ def get_basic_submission_data(submission_summary):
 def fetch_petition_signatures():
     """
     Fetches all petition signatures using 'expand=person' to reduce API calls.
+    Falls back to person links if not embedded.
     """
-    print("Fetching petition signatures with expanded person data...")
+    print("Fetching petition signatures...")
     all_signatures = []
     next_page_url = f"{AN_BASE_URL}forms/{AN_FORM_ID}/submissions/"
     page_number = 1
@@ -79,7 +88,6 @@ def fetch_petition_signatures():
             print(f"[Page {page_number}] Submissions fetched: {len(submissions_on_page)}")
 
             for i, submission in enumerate(submissions_on_page):
-                print(f"\nSubmission {i+1}:\n{submission.get('person', {})}")
                 signature_data = get_basic_submission_data(submission)
                 if signature_data:
                     all_signatures.append(signature_data)
@@ -149,3 +157,4 @@ if __name__ == "__main__":
         httpd.serve_forever()
     except KeyboardInterrupt:
         print("\nServer stopped.")
+
